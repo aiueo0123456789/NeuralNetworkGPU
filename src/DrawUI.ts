@@ -27,7 +27,19 @@ export class DrawUI {
   }
 
   setPixel(x: number,y: number,value: number) {
-    this.pixels[Math.floor(x) + Math.floor(y) * this.width] = value;
+    this.pixels[Math.floor(x) + Math.floor(y) * this.width] += value;
+    let right = x + 1 < this.width;
+    let left = x - 1 >= 0;
+    let up = y + 1 < this.height;
+    let down = y - 1 >= 0;
+    if (right) this.pixels[Math.floor(x + 1) + Math.floor(y) * this.width] += value * 0.4;
+    if (left) this.pixels[Math.floor(x - 1) + Math.floor(y) * this.width] += value * 0.4;
+    if (up) this.pixels[Math.floor(x) + Math.floor(y + 1) * this.width] += value * 0.4;
+    if (down) this.pixels[Math.floor(x) + Math.floor(y - 1) * this.width] += value * 0.4;
+    if (right && up) this.pixels[Math.floor(x + 1) + Math.floor(y * 1) * this.width] += value * 0.1;
+    if (right && down) this.pixels[Math.floor(x + 1) + Math.floor(y - 1) * this.width] += value * 0.1;
+    if (left && up) this.pixels[Math.floor(x - 1) + Math.floor(y * 1) * this.width] += value * 0.1;
+    if (left && down) this.pixels[Math.floor(x - 1) + Math.floor(y - 1) * this.width] += value * 0.1;
   }
 
   draw(): void {
@@ -42,9 +54,7 @@ export class DrawUI {
         const pixelColor = this.pixels[x + y * this.width] * 255;
         if (pixelColor > 0) {
           ctx.fillStyle = `rgb(${pixelColor},${pixelColor},${pixelColor})`;
-          ctx.beginPath();
-          ctx.arc(x, y, 1, 0, Math.PI * 2);
-          ctx.fill();
+          ctx.fillRect(x - 0.5, y - 0.5, 1, 1);
         }
       }
     }

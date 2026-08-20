@@ -59,7 +59,7 @@ for (let i = 0; i < 10; i ++) {
 
 const costs: number[] = [];
 
-const maxLearningCount = 10000;
+const maxLearningCount = 500000;
 let learningCount = 0;
 let loopNum = 0;
 async function updateCosts(): Promise<void> {
@@ -76,14 +76,14 @@ async function updateCosts(): Promise<void> {
 }
 
 function update(): void {
-  for (let i = 0; i < 60; i ++) {
+  for (let i = 0; i < 50; i ++) {
     if (maxLearningCount <= learningCount) break ;
     const label = testData.labels[learningCount % testDatasNum];
     const image = testData.images[learningCount % testDatasNum];
     neuralNetworkGPU.learning(image, targetDatas[label]);
     learningCount++;
   }
-  for (let i = 0; i < 40; i ++) {
+  for (let i = 0; i < 50; i ++) {
     let testDataIndex = Math.floor(Math.random() * testDatasNum);
     const label = testData.labels[testDataIndex];
     const image = testData.images[testDataIndex];
@@ -113,7 +113,7 @@ drawCanvas.addEventListener("mousedown", (e) => {
 drawCanvas.addEventListener("mouseup", (e) => {
   isMousedown = false;
 })
-drawCanvas.addEventListener("mousemove", (e) => {
+drawCanvas.addEventListener("mousemove", async (e) => {
   if (!isMousedown) return ;
   const rect = drawCanvas.getBoundingClientRect();
   const cvsK = drawCanvas.height / rect.height;
@@ -125,12 +125,10 @@ drawCanvas.addEventListener("mousemove", (e) => {
     mouseY > 0 &&
     mouseY < drawCanvas.height
   ) {
-    drawUI.setPixel(mouseX, mouseY, 1)
+    drawUI.setPixel(mouseX, mouseY, 1);
+    neuralNetworkGPU.run(drawUI.pixels);
+    outputBarGraph.draw(Array.from(await neuralNetworkGPU.getAnswer()));
   }
-})
-document.getElementById("run")?.addEventListener("click", async () => {
-  neuralNetworkGPU.run(drawUI.pixels);
-  outputBarGraph.draw(Array.from(await neuralNetworkGPU.getAnswer()));
 })
 document.getElementById("reset")?.addEventListener("click", async () => {
   drawUI.clear();
@@ -140,5 +138,3 @@ document.getElementById("set")?.addEventListener("click", async () => {
   const image = testData.images[testDataIndex];
   drawUI.setPixels(image);
 })
-// neuralNetworkGPU.run(new Float32Array([1,0,1,0]));
-// console.log(await neuralNetworkGPU.getAnswer());

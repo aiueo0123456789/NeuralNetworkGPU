@@ -1,10 +1,15 @@
 import { CostGraph } from "./CostGraph";
 import { DrawUI } from "./DrawUI";
 import { ActivationFunction, NeuralNetworkGPU } from "./neuralNetworkGPU";
+import { OutputBarGraph } from "./OutputBarGraph";
 
 const costCanvas = document.getElementById('costCanvas') as HTMLCanvasElement;
+const outputBarCanvas = document.getElementById('outputBarCanvas') as HTMLCanvasElement;
 const drawCanvas = document.getElementById('drawCanvas') as HTMLCanvasElement;
 const costGraph = new CostGraph(costCanvas, { maxPoints: 5000 });
+const outputBarGraph = new OutputBarGraph(outputBarCanvas, {
+  labels: ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9'],
+});
 const drawUI = new DrawUI(drawCanvas);
 
 const neuralNetworkGPU = new NeuralNetworkGPU({
@@ -54,7 +59,7 @@ for (let i = 0; i < 10; i ++) {
 
 const costs: number[] = [];
 
-const maxLearningCount = 500000;
+const maxLearningCount = 10000;
 let learningCount = 0;
 let loopNum = 0;
 async function updateCosts(): Promise<void> {
@@ -125,10 +130,15 @@ drawCanvas.addEventListener("mousemove", (e) => {
 })
 document.getElementById("run")?.addEventListener("click", async () => {
   neuralNetworkGPU.run(drawUI.pixels);
-  console.log(await neuralNetworkGPU.getAnswer());
+  outputBarGraph.draw(Array.from(await neuralNetworkGPU.getAnswer()));
 })
 document.getElementById("reset")?.addEventListener("click", async () => {
   drawUI.clear();
+})
+document.getElementById("set")?.addEventListener("click", async () => {
+  let testDataIndex = Math.floor(Math.random() * testDatasNum);
+  const image = testData.images[testDataIndex];
+  drawUI.setPixels(image);
 })
 // neuralNetworkGPU.run(new Float32Array([1,0,1,0]));
 // console.log(await neuralNetworkGPU.getAnswer());

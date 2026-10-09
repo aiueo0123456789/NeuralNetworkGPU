@@ -145,7 +145,68 @@ const forwardPipeline = device.createComputePipeline({
   compute: {
     module: device.createShaderModule({
       label: "forwardShaderModel",
-      code: await fetch("./shader/forward.wgsl").then((x) => x.text())
+      code: `
+struct LayerData {
+  neuronOffset: u32,
+  connectionOffset: u32,
+  neuronsNum: u32,
+  activationFunction: u32
+}
+
+@group(0) @binding(0) var<storage, read_write> valueBuffer: array<f32>; // 活性化関数適応前
+@group(0) @binding(1) var<storage, read_write> activatedValueBuffer: array<f32>; // 活性化関数適応後
+@group(0) @binding(2) var<storage, read> weightBuffer: array<f32>; // 重み
+@group(0) @binding(3) var<storage, read> biasBuffer: array<f32>; // バイアス
+@group(0) @binding(4) var<storage, read> layerDataBuffer: array<LayerData>; // レイヤー情報
+
+@group(1) @binding(0) var<uniform> layerIndex: u32;
+
+fn Sigmoid(weightedInput: f32) -> f32 {
+  return 1.0 / (1.0 + exp(-weightedInput));
+}
+
+fn ReLU(weightedInput: f32) -> f32 {
+  return max(weightedInput, 0.0);
+}
+
+fn LeakyReLU(weightedInput: f32) -> f32 {
+  return select(0.01 * weightedInput, weightedInput, weightedInput > 0.0);
+}
+
+// ソフトマックスはここでは行わない
+@compute @workgroup_size(64)
+fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
+  let threadIndex: u32 = global_id.x;
+  let layerData = layerDataBuffer[layerIndex];
+  if (layerData.neuronsNum <= threadIndex) {
+    return;
+  }
+
+  let prevLayerData = layerDataBuffer[layerIndex - 1u];
+
+  let neuronIndex = layerData.neuronOffset + threadIndex;
+
+  let inputsNum: u32 = prevLayerData.neuronsNum;
+
+  var weightedInput: f32 = biasBuffer[neuronIndex];
+  for (var inIndex: u32 = 0u; inIndex < inputsNum; inIndex ++) {
+    let weightIndex = layerData.connectionOffset + threadIndex * inputsNum + inIndex;
+    weightedInput += activatedValueBuffer[prevLayerData.neuronOffset + inIndex] * weightBuffer[weightIndex];
+  }
+  valueBuffer[neuronIndex] = weightedInput;
+  let activationFn = layerData.activationFunction;
+  if (activationFn == 1u) {
+    activatedValueBuffer[neuronIndex] = Sigmoid(weightedInput);
+  } else if (activationFn == 2u) {
+    activatedValueBuffer[neuronIndex] = ReLU(weightedInput);
+  } else if (activationFn == 3u) {
+    activatedValueBuffer[neuronIndex] = LeakyReLU(weightedInput);
+  } else if (activationFn == 4u) {
+    activatedValueBuffer[neuronIndex] = weightedInput;
+  } else {
+    activatedValueBuffer[neuronIndex] = weightedInput;
+  }
+}`
     }),
     entryPoint: "main",
   },
@@ -157,7 +218,53 @@ const forwardSoftmaxSumPipeline = device.createComputePipeline({
   compute: {
     module: device.createShaderModule({
       label: "forwardSoftmaxSumShaderModel",
-      code: await fetch("./shader/forwardSoftmaxSum.wgsl").then((x) => x.text())
+      code: `
+struct LayerData {
+  neuronOffset: u32,
+  connectionOffset: u32,
+  neuronsNum: u32,
+  activationFunction: u32
+}
+
+@group(0) @binding(0) var<storage, read_write> valueBuffer: array<f32>; // 活性化関数適応前
+@group(0) @binding(1) var<storage, read_write> activatedValueBuffer: array<f32>; // 活性化関数適応後
+@group(0) @binding(2) var<storage, read> weightBuffer: array<f32>; // 重み
+@group(0) @binding(3) var<storage, read> biasBuffer: array<f32>; // バイアス
+@group(0) @binding(4) var<storage, read> layerDataBuffer: array<LayerData>; // レイヤー情報
+
+@group(1) @binding(0) var<uniform> layerIndex: u32;
+
+@group(2) @binding(0) var<storage, read_write> softmaxSumBuffer: f32;
+
+// ソフトマックスの手順
+// 1. 各要素のexp(z)を計算 <- このシェーダーではここ
+// 2. exp(z)の合計を計算 <- このシェーダーではここ
+// 3. 各要素を合計で割る
+@compute @workgroup_size(1)
+fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
+  let layerData = layerDataBuffer[layerIndex];
+
+  var max = activatedValueBuffer[layerData.neuronOffset];
+  for (var i = 1u; i < layerData.neuronsNum; i ++) {
+    let neuronIndex = layerData.neuronOffset + i;
+    let value = activatedValueBuffer[neuronIndex];
+    if (max < value) {
+      max = value;
+    }
+  }
+
+  for (var i = 0u; i < layerData.neuronsNum; i ++) {
+    let neuronIndex = layerData.neuronOffset + i;
+    activatedValueBuffer[neuronIndex] = exp(activatedValueBuffer[neuronIndex] - max);
+  }
+
+  var sum = 0.0;
+  for (var i = 0u; i < layerData.neuronsNum; i ++) {
+    let neuronIndex = layerData.neuronOffset + i;
+    sum += activatedValueBuffer[neuronIndex];
+  }
+  softmaxSumBuffer = sum;
+}`
     }),
     entryPoint: "main",
   },
@@ -169,7 +276,40 @@ const forwardSoftmaxDivPipeline = device.createComputePipeline({
   compute: {
     module: device.createShaderModule({
       label: "forwardSoftmaxDivShaderModel",
-      code: await fetch("./shader/forwardSoftmaxDiv.wgsl").then((x) => x.text())
+      code: `
+struct LayerData {
+  neuronOffset: u32,
+  connectionOffset: u32,
+  neuronsNum: u32,
+  activationFunction: u32
+}
+
+@group(0) @binding(0) var<storage, read_write> valueBuffer: array<f32>; // 活性化関数適応前
+@group(0) @binding(1) var<storage, read_write> activatedValueBuffer: array<f32>; // 活性化関数適応後
+@group(0) @binding(2) var<storage, read> weightBuffer: array<f32>; // 重み
+@group(0) @binding(3) var<storage, read> biasBuffer: array<f32>; // バイアス
+@group(0) @binding(4) var<storage, read> layerDataBuffer: array<LayerData>; // レイヤー情報
+
+@group(1) @binding(0) var<uniform> layerIndex: u32;
+
+@group(2) @binding(0) var<storage, read_write> softmaxSumBuffer: f32;
+
+// ソフトマックスの手順
+// 1. 各要素のexp(z)を計算
+// 2. exp(z)の合計を計算
+// 3. 各要素を合計で割る <- このシェーダーではここ
+@compute @workgroup_size(64)
+fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
+  let threadIndex: u32 = global_id.x;
+  let layerData = layerDataBuffer[layerIndex];
+  if (layerData.neuronsNum <= threadIndex) {
+    return;
+  }
+
+  let neuronIndex = layerData.neuronOffset + threadIndex;
+
+  activatedValueBuffer[neuronIndex] /= softmaxSumBuffer;
+}`
     }),
     entryPoint: "main",
   },
@@ -181,7 +321,79 @@ const backwardOutputPipeline = device.createComputePipeline({
   compute: {
     module: device.createShaderModule({
       label: "backwardOutputShaderModel",
-      code: await fetch("./shader/backward_output.wgsl").then((x) => x.text())
+      code: `
+struct LayerData {
+  neuronOffset: u32,
+  connectionOffset: u32,
+  neuronsNum: u32,
+  activationFunction: u32
+}
+
+@group(0) @binding(0) var<storage, read> valueBuffer: array<f32>; // 活性化関数適応前
+@group(0) @binding(1) var<storage, read> activatedValueBuffer: array<f32>; // 活性化関数適応後
+@group(0) @binding(2) var<storage, read> weightBuffer: array<f32>; // 重み
+@group(0) @binding(3) var<storage, read_write> biasBuffer: array<f32>; // バイアス
+@group(0) @binding(4) var<storage, read_write> nodeValueBuffer: array<f32>; // ノードバリュー
+@group(0) @binding(5) var<storage, read_write> newWeightBuffer: array<f32>; // 重み
+@group(0) @binding(6) var<storage, read> layerDataBuffer: array<LayerData>; // レイヤー情報
+
+@group(1) @binding(0) var<uniform> layerIndex: u32;
+
+@group(2) @binding(0) var<storage, read> targetBuffer: array<f32>; // 目標
+@group(2) @binding(1) var<uniform> learningRate: f32; // 学習率
+
+fn SigmoidDerivative(weightedInput: f32) -> f32 {
+  let a = 1.0 / (1.0 + exp(-weightedInput));
+  return a * (1.0 - a);
+}
+
+fn ReLUDerivative(x: f32) -> f32 {
+  return select(0.0, 1.0, x > 0.0);
+}
+
+fn LeakyReLUDerivative(x: f32) -> f32 {
+  return select(0.01, 1.0, x > 0.0);
+}
+
+@compute @workgroup_size(64)
+fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
+  let threadIndex: u32 = global_id.x;
+  let layerData = layerDataBuffer[layerIndex];
+  if (layerData.neuronsNum <= threadIndex) {
+    return;
+  }
+
+  let neuronIndex = layerData.neuronOffset + threadIndex;
+
+  let activationFn = layerData.activationFunction;
+  var nodeValue: f32 = 0.0;
+  if (activationFn == 4u) { // softmaxとクロスエントロピーの微分はこうなるらしい理由は知らん
+    nodeValue = activatedValueBuffer[neuronIndex] - targetBuffer[threadIndex];
+  } else {
+    nodeValue = 2.0 * (activatedValueBuffer[neuronIndex] - targetBuffer[threadIndex]);
+
+    var value: f32 = valueBuffer[neuronIndex];
+
+    if (activationFn == 1u) {
+      nodeValue *= SigmoidDerivative(value);
+    } else if (activationFn == 2u) {
+      nodeValue *= ReLUDerivative(value);
+    } else if (activationFn == 3u) {
+      nodeValue *= LeakyReLUDerivative(value);
+    }
+  }
+
+  let prevLayerData = layerDataBuffer[layerIndex - 1u];
+
+  let inputNum: u32 = prevLayerData.neuronsNum;
+  for (var inIndex: u32 = 0u; inIndex < inputNum; inIndex ++) {
+    let weightIndex = layerData.connectionOffset + threadIndex * inputNum + inIndex;
+    let derivativeCostWrtWeight: f32 = activatedValueBuffer[prevLayerData.neuronOffset + inIndex] * nodeValue;
+    newWeightBuffer[weightIndex] = weightBuffer[weightIndex] - derivativeCostWrtWeight * learningRate;
+  }
+  biasBuffer[neuronIndex] -= nodeValue * learningRate;
+  nodeValueBuffer[neuronIndex] = nodeValue;
+}`
     }),
     entryPoint: "main",
   },
@@ -192,7 +404,81 @@ const backwardHiddenPipeline = device.createComputePipeline({
   compute: {
     module: device.createShaderModule({
       label: "backwardHiddenShaderModel",
-      code: await fetch("./shader/backward_hidden.wgsl").then((x) => x.text())
+      code: `
+struct LayerData {
+  neuronOffset: u32,
+  connectionOffset: u32,
+  neuronsNum: u32,
+  activationFunction: u32
+}
+
+@group(0) @binding(0) var<storage, read> valueBuffer: array<f32>; // 活性化関数適応前
+@group(0) @binding(1) var<storage, read> activatedValueBuffer: array<f32>; // 活性化関数適応後
+@group(0) @binding(2) var<storage, read> weightBuffer: array<f32>; // 重み
+@group(0) @binding(3) var<storage, read_write> biasBuffer: array<f32>; // バイアス
+@group(0) @binding(4) var<storage, read_write> nodeValueBuffer: array<f32>; // ノードバリュー
+@group(0) @binding(5) var<storage, read_write> newWeightBuffer: array<f32>; // 重み
+@group(0) @binding(6) var<storage, read> layerDataBuffer: array<LayerData>; // レイヤー情報
+
+@group(1) @binding(0) var<uniform> layerIndex: u32;
+
+@group(2) @binding(0) var<storage, read> targetBuffer: array<f32>; // 目標
+@group(2) @binding(1) var<uniform> learningRate: f32; // 学習率
+
+fn SigmoidDerivative(weightedInput: f32) -> f32 {
+  let a = 1.0 / (1.0 + exp(-weightedInput));
+  return a * (1.0 - a);
+}
+
+fn ReLUDerivative(x: f32) -> f32 {
+  return select(0.0, 1.0, x > 0.0);
+}
+
+fn LeakyReLUDerivative(x: f32) -> f32 {
+  return select(0.01, 1.0, x > 0.0);
+}
+
+@compute @workgroup_size(64)
+fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
+  let threadIndex: u32 = global_id.x;
+  let layerData = layerDataBuffer[layerIndex];
+  if (layerData.neuronsNum <= threadIndex) {
+    return;
+  }
+
+  let nextLayerData = layerDataBuffer[layerIndex + 1u];
+  let prevLayerData = layerDataBuffer[layerIndex - 1u];
+
+  let neuronsNum = layerData.neuronsNum;
+  let nextNeuronsNum = nextLayerData.neuronsNum;
+  let neuronIndex = layerData.neuronOffset + threadIndex;
+
+  var nodeValue: f32 = 0.0;
+  for (var i: u32 = 0u; i < nextNeuronsNum; i ++) {
+    let weightIndex = nextLayerData.connectionOffset + i * neuronsNum + threadIndex;
+    nodeValue += weightBuffer[weightIndex] * nodeValueBuffer[nextLayerData.neuronOffset + i];
+  }
+
+  var value: f32 = valueBuffer[neuronIndex];
+  let activationFn = layerData.activationFunction;
+
+  if (activationFn == 1u) {
+    nodeValue *= SigmoidDerivative(value);
+  } else if (activationFn == 2u) {
+    nodeValue *= ReLUDerivative(value);
+  } else if (activationFn == 3u) {
+    nodeValue *= LeakyReLUDerivative(value);
+  }
+
+  let inputNum: u32 = prevLayerData.neuronsNum;
+  for (var inIndex: u32 = 0u; inIndex < inputNum; inIndex ++) {
+    let weightIndex = layerData.connectionOffset + threadIndex * inputNum + inIndex;
+    let derivativeCostWrtWeight: f32 = activatedValueBuffer[prevLayerData.neuronOffset + inIndex] * nodeValue;
+    newWeightBuffer[weightIndex] = weightBuffer[weightIndex] - derivativeCostWrtWeight * learningRate;
+  }
+  biasBuffer[neuronIndex] -= nodeValue * learningRate;
+  nodeValueBuffer[neuronIndex] = nodeValue;
+}`
     }),
     entryPoint: "main",
   },

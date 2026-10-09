@@ -45,7 +45,7 @@ const neuralNetworkGPU = new NeuralNetworkGPU({
 neuralNetworkGPU.setRundom(1);
 neuralNetworkGPU.setLearningRateBuffer(0.0001);
 
-const testData: {labels: any[], images: any[] } = await fetch(`mnist.json`).then((x) => x.json());
+const testData: {labels: any[], images: any[] } = await fetch(`src/data.json`).then((x) => x.json());
 testData.images = testData.images.map(image => new Float32Array(image));
 const testDatasNum = testData.labels.length;
 console.log(`${testDatasNum} のデータを学習します`)
@@ -64,7 +64,7 @@ let learningCount = 0;
 let loopNum = 0;
 async function updateCosts(): Promise<void> {
   let sumCost = 0;
-  for (let i = 0; i < 5; i ++) {
+  for (let i = 0; i < 10; i ++) {
     let testDataIndex = Math.floor(Math.random() * testDatasNum);
     const label = testData.labels[testDataIndex];
     const image = testData.images[testDataIndex];
@@ -76,20 +76,15 @@ async function updateCosts(): Promise<void> {
 }
 
 function update(): void {
-  for (let i = 0; i < 50; i ++) {
+  for (let i = 0; i < 100; i ++) {
     if (maxLearningCount <= learningCount) break ;
-    const label = testData.labels[learningCount % testDatasNum];
-    const image = testData.images[learningCount % testDatasNum];
-    neuralNetworkGPU.learning(image, targetDatas[label]);
-    learningCount++;
-  }
-  for (let i = 0; i < 50; i ++) {
     let testDataIndex = Math.floor(Math.random() * testDatasNum);
     const label = testData.labels[testDataIndex];
     const image = testData.images[testDataIndex];
     neuralNetworkGPU.learning(image, targetDatas[label]);
+    learningCount++;
   }
-  if (loopNum % 5 == 0) updateCosts();
+  if (loopNum % 10 == 0) updateCosts();
   loopNum ++;
   if (learningCount < maxLearningCount) {
     requestAnimationFrame(update);
@@ -106,6 +101,11 @@ function update2(): void {
 }
 update2();
 
+async function pixelsUpdate(): Promise<void> {
+  neuralNetworkGPU.run(drawUI.pixels);
+  outputBarGraph.draw(Array.from(await neuralNetworkGPU.getAnswer()));
+}
+
 let isMousedown = false;
 drawCanvas.addEventListener("mousedown", (e) => {
   isMousedown = true;
@@ -113,7 +113,7 @@ drawCanvas.addEventListener("mousedown", (e) => {
 drawCanvas.addEventListener("mouseup", (e) => {
   isMousedown = false;
 })
-drawCanvas.addEventListener("mousemove", async (e) => {
+drawCanvas.addEventListener("mousemove", (e) => {
   if (!isMousedown) return ;
   const rect = drawCanvas.getBoundingClientRect();
   const cvsK = drawCanvas.height / rect.height;
@@ -126,15 +126,15 @@ drawCanvas.addEventListener("mousemove", async (e) => {
     mouseY < drawCanvas.height
   ) {
     drawUI.setPixel(mouseX, mouseY, 1);
-    neuralNetworkGPU.run(drawUI.pixels);
-    outputBarGraph.draw(Array.from(await neuralNetworkGPU.getAnswer()));
+    pixelsUpdate();
   }
 })
-document.getElementById("reset")?.addEventListener("click", async () => {
+document.getElementById("reset")?.addEventListener("click", () => {
   drawUI.clear();
 })
-document.getElementById("set")?.addEventListener("click", async () => {
+document.getElementById("set")?.addEventListener("click", () => {
   let testDataIndex = Math.floor(Math.random() * testDatasNum);
   const image = testData.images[testDataIndex];
   drawUI.setPixels(image);
+  pixelsUpdate();
 })

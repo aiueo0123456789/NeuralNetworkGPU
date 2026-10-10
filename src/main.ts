@@ -1,6 +1,6 @@
 import { CostGraph } from "./CostGraph";
 import { DrawUI } from "./DrawUI";
-import { ActivationFunction, NeuralNetworkGPU } from "./neuralNetworkGPU";
+import { NeuralNetworkGPU } from "./neuralNetworkGPU";
 import { OutputBarGraph } from "./OutputBarGraph";
 
 const costCanvas = document.getElementById('costCanvas') as HTMLCanvasElement;
@@ -15,30 +15,30 @@ const drawUI = new DrawUI(drawCanvas);
 const neuralNetworkGPU = new NeuralNetworkGPU({
   inputLayer: {
     neuronsNum: 28 * 28,
-    activationFunction: ActivationFunction.None
+    activationFunction: NeuralNetworkGPU.ActivationFunction.None
   },
   hiddenLayers: [
     {
       neuronsNum: 256,
-      activationFunction: ActivationFunction.LeakyReLU
+      activationFunction: NeuralNetworkGPU.ActivationFunction.LeakyReLU
     },
     {
       neuronsNum: 128,
-      activationFunction: ActivationFunction.LeakyReLU
+      activationFunction: NeuralNetworkGPU.ActivationFunction.LeakyReLU
     },
     {
       neuronsNum: 64,
-      activationFunction: ActivationFunction.LeakyReLU
+      activationFunction: NeuralNetworkGPU.ActivationFunction.LeakyReLU
     },
     {
       neuronsNum: 32,
-      activationFunction: ActivationFunction.LeakyReLU
+      activationFunction: NeuralNetworkGPU.ActivationFunction.LeakyReLU
     }
   ],
   outputLayer: {
     neuronsNum: 10,
     // activationFunction: ActivationFunction.Sigmoid
-    activationFunction: ActivationFunction.Softmax
+    activationFunction: NeuralNetworkGPU.ActivationFunction.Softmax
   }
 });
 
@@ -81,7 +81,7 @@ function update(): void {
     let testDataIndex = Math.floor(Math.random() * testDatasNum);
     const label = testData.labels[testDataIndex];
     const image = testData.images[testDataIndex];
-    neuralNetworkGPU.learning(image, targetDatas[label]);
+    neuralNetworkGPU.runAndLearning(image, targetDatas[label]);
     learningCount++;
   }
   if (loopNum % 10 == 0) updateCosts();

@@ -484,7 +484,7 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
   },
 });
 
-export enum ActivationFunction {
+enum ActivationFunction {
   None = 0,
   Sigmoid = 1,
   ReLU = 2,
@@ -522,6 +522,8 @@ class GPULayerData {
 }
 
 export class NeuralNetworkGPU {
+  static ActivationFunction = ActivationFunction;
+
   public layersNum: number;
   public layerDatas: GPULayerData[];
   private learningRateBuffer: GPUBuffer; // 学習時の学習率
@@ -854,7 +856,7 @@ export class NeuralNetworkGPU {
     device.queue.submit([computeCommandEncoder.finish()]);
   }
 
-  public learning(input: GPUAllowSharedBufferSource, target: GPUAllowSharedBufferSource): void {
+  public runAndLearning(input: GPUAllowSharedBufferSource, target: GPUAllowSharedBufferSource): void {
     device.queue.writeBuffer(this.activatedValueBuffer, 0, input);
     device.queue.writeBuffer(this.targetBuffer, 0, target);
     const computeCommandEncoder = device.createCommandEncoder();
@@ -880,6 +882,59 @@ export class NeuralNetworkGPU {
       }
     }
 
+    // 逆伝播
+    computePassEncoder.setBindGroup(0, this.backwardBindGroup0);
+    computePassEncoder.setBindGroup(2, this.backwardBindGroup2);
+    computePassEncoder.setPipeline(backwardOutputPipeline);
+    {
+      // 出力層
+      const li = this.layersNum - 1;
+      computePassEncoder.setBindGroup(1, this.bindGroup1s[li]);
+      computePassEncoder.dispatchWorkgroups(Math.ceil(this.layerDatas[li].neuronsNum / 64), 1, 1);
+    }
+    computePassEncoder.setPipeline(backwardHiddenPipeline);
+    for (let li = this.layersNum - 2; li >= 1; li--) {
+      computePassEncoder.setBindGroup(1, this.bindGroup1s[li]);
+      computePassEncoder.dispatchWorkgroups(Math.ceil(this.layerDatas[li].neuronsNum / 64), 1, 1);
+    }
+    computePassEncoder.end();
+    computeCommandEncoder.copyBufferToBuffer(this.newWeightBuffer, 0, this.weightBuffer, 0, this.newWeightBuffer.size);
+    device.queue.submit([computeCommandEncoder.finish()]);
+  }
+
+  public runForLearning(input: GPUAllowSharedBufferSource): void {
+    device.queue.writeBuffer(this.activatedValueBuffer, 0, input);
+    const computeCommandEncoder = device.createCommandEncoder();
+    const computePassEncoder = computeCommandEncoder.beginComputePass();
+    computePassEncoder.setPipeline(forwardPipeline);
+    computePassEncoder.setBindGroup(0, this.forwardBindGroup0);
+    for (let li = 1; li < this.layersNum - 1; li++) {
+      computePassEncoder.setBindGroup(1, this.bindGroup1s[li]);
+      computePassEncoder.dispatchWorkgroups(Math.ceil(this.layerDatas[li].neuronsNum / 64), 1, 1);
+    }
+    {
+      // 出力層
+      const li = this.layersNum - 1;
+      const layerData = this.layerDatas[li];
+      computePassEncoder.setBindGroup(1, this.bindGroup1s[li]);
+      computePassEncoder.dispatchWorkgroups(Math.ceil(this.layerDatas[li].neuronsNum / 64), 1, 1); // 一回汎用シェーダーを実行
+      if (layerData.activationFunction === ActivationFunction.Softmax) { // softmax専用の処理
+        computePassEncoder.setPipeline(forwardSoftmaxSumPipeline);
+        computePassEncoder.setBindGroup(2, this.forwardSoftmaxBindGroup);
+        computePassEncoder.dispatchWorkgroups(1, 1, 1);
+        computePassEncoder.setPipeline(forwardSoftmaxDivPipeline);
+        computePassEncoder.dispatchWorkgroups(Math.ceil(layerData.neuronsNum / 64), 1, 1);
+      }
+    }
+    computePassEncoder.end();
+    computeCommandEncoder.copyBufferToBuffer(this.newWeightBuffer, 0, this.weightBuffer, 0, this.newWeightBuffer.size);
+    device.queue.submit([computeCommandEncoder.finish()]);
+  }
+
+  public learning(target: GPUAllowSharedBufferSource): void {
+    device.queue.writeBuffer(this.targetBuffer, 0, target);
+    const computeCommandEncoder = device.createCommandEncoder();
+    const computePassEncoder = computeCommandEncoder.beginComputePass();
     // 逆伝播
     computePassEncoder.setBindGroup(0, this.backwardBindGroup0);
     computePassEncoder.setBindGroup(2, this.backwardBindGroup2);

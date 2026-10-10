@@ -484,13 +484,15 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
   },
 });
 
-enum ActivationFunction {
-  None = 0,
-  Sigmoid = 1,
-  ReLU = 2,
-  LeakyReLU = 3,
-  Softmax = 4, // 出力層のみ
-}
+const ActivationFunction = {
+  None: 0,
+  Sigmoid: 1,
+  ReLU: 2,
+  LeakyReLU: 3,
+  Softmax: 4,
+} as const;
+type ActivationFunction = typeof ActivationFunction[keyof typeof ActivationFunction];
+
 
 interface LayerData {
   neuronsNum: number;

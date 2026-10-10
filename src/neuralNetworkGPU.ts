@@ -757,7 +757,7 @@ export class NeuralNetworkGPU {
     device.queue.writeBuffer(this.learningRateBuffer, 0, new Float32Array([learningRate]));
   }
 
-  public setRundom(range: number = 1): void {
+  public setRandom(range: number = 1): void {
     device.queue.writeBuffer(this.biasBuffer, 0, new Float32Array(this.biasBuffer.size / 4).map(() => Math.random() * range * 2 - range));
     device.queue.writeBuffer(this.weightBuffer, 0, new Float32Array(this.weightBuffer.size / 4).map(() => Math.random() * range * 2 - range));
   }

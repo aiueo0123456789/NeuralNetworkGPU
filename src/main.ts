@@ -42,7 +42,7 @@ const neuralNetworkGPU = new NeuralNetworkGPU({
   }
 });
 
-neuralNetworkGPU.setRundom(1);
+neuralNetworkGPU.setRandom(1);
 neuralNetworkGPU.setLearningRateBuffer(0.0001);
 
 const testData: {labels: any[], images: any[] } = await fetch(`src/data.json`).then((x) => x.json());
